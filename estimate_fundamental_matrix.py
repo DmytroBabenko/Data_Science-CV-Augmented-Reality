@@ -2,6 +2,16 @@ import cv2 as cv
 import numpy as np
 from random import shuffle
 
+def normalize2dpts(X):
+    t = np.mean(X, 0)
+    X0 = X - t
+    s = np.sqrt(2) / np.linalg.norm(X0, axis=1).mean()
+    T = np.array([[s, 0, -s * t[0]],
+                  [0, s, -s * t[1]],
+                  [0, 0,  1]])
+    X0 *= s
+    return X0, T
+
 
 class EstimateFMBy8Points:
 
@@ -53,9 +63,48 @@ class EstimateFMBy8Points:
 
 
 
+#there were used wiki:
+#https://en.wikipedia.org/wiki/Eight-point_algorithm
+# and material from lecture
     def find_fundamental_matrix(self):
-        #TODO: add your implementation from scratch
-        self.F, mask = cv.findFundamentalMat(self.points1, self.points2, method=cv.FM_8POINT)
+
+        if self.points1 is None or self.points2 is None:
+            raise Exception("There are no points yet")
+
+
+        assert len(self.points1) == len(self.points2)
+
+        size = len(self.points1)
+
+        #let's build matrix Y, each is correspoiding to
+        #[y1'*y1, y1'y2, y1', y2'y1, y2'y2, y2', y1, y2, 1]
+        Y = np.zeros((size, 9))
+
+        Y1, T1 = EstimateFMBy8Points._normalize2dpts(self.points1)
+        Y2, T2 = EstimateFMBy8Points._normalize2dpts(self.points2)
+
+        for i in range(size):
+            y1, y2 = Y1[i][0], Y1[i][1]
+            y1_hatch, y2_hatch = Y2[i][0], Y2[i][1]
+
+
+            Y[i] = [y1_hatch*y1, y1_hatch*y2, y1_hatch,
+                    y2_hatch*y1, y2_hatch*y2, y2_hatch,
+                    y1_hatch, y2_hatch, 1]
+
+        #SVD
+        U, D, V = np.linalg.svd(Y)
+        F = V[:, -1].reshape(3, 3)
+
+        # force F to be rank  matrix
+        U, D, V = np.linalg.svd(F, False)
+        F = U.dot(np.diag((D[0], D[1], 0)).dot(V))
+
+        # Denormalize
+        F = T2.T.dot(F).dot(T1)
+
+        self.F = F
+
         return self.F
 
 
@@ -125,6 +174,25 @@ class EstimateFMBy8Points:
             cv.circle(img_epilines, p, 5, color, -1)
 
         return img_epilines
+
+
+
+#there were used code for this function from standard matlab normalize2dpts
+#se here https://www.mathworks.com/matlabcentral/fileexchange/54544-normalise2dpts-pts?focused=5802540&tab=function&s_tid=mwa_osa_a
+    @staticmethod
+    def _normalize2dpts(pts):
+        c = np.mean(pts, 0)
+        newpts = pts - c
+        dist = np.linalg.norm(newpts, axis=1)
+        meandist = np.mean(dist)
+        scale = np.sqrt(2) / meandist
+
+        T = np.array([[scale, 0, -scale * c[0]],
+                      [0, scale, -scale * c[1]],
+                      [0, 0, 1]])
+        newpts *= scale
+
+        return newpts, T
 
 
 
